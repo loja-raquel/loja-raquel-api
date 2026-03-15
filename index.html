@@ -347,7 +347,7 @@ function selecionarPrimeiroEntrada(){const q=document.getElementById('entrada-bu
 function selecionarEntrada(id){const p=produtos_cache.find(x=>x.id==id);if(!p)return;entradaProdutoId=id;document.getElementById('entrada-sugestoes').innerHTML='';document.getElementById('entrada-busca').value=p.nome;document.getElementById('entrada-custo').value=p.custo||'';const el=document.getElementById('entrada-produto-selecionado');el.innerHTML=`<div class="alert alert-info"><div><strong>${p.nome}</strong>${p.codigo?`<span class="tag" style="margin-left:8px;">${p.codigo}</span>`:''}<span style="margin-left:12px;color:var(--muted);font-size:12px;">Estoque atual: <strong style="color:var(--cyan);">${p.qtd} ${p.unidade}</strong></span><span style="margin-left:12px;color:var(--muted);font-size:12px;">Custo atual: <strong style="color:var(--cyan);">${fmt(p.custo)}</strong></span></div></div>`;el.style.display='block';document.getElementById('entrada-campos').style.display='grid';document.getElementById('entrada-btn-area').style.display='block';document.getElementById('entrada-qtd').focus();}
 async function confirmarEntrada(){if(!entradaProdutoId){alert('Selecione um produto.');return;}const qtd=parseInt(document.getElementById('entrada-qtd').value)||0;const custo=parseFloat(document.getElementById('entrada-custo').value)||0;const validade=document.getElementById('entrada-validade').value;const forn=document.getElementById('entrada-fornecedor').value.trim();if(qtd<=0){alert('Informe a quantidade recebida.');return;}const p=produtos_cache.find(x=>x.id==entradaProdutoId);const res=await api('/api/entradas',{method:'POST',body:JSON.stringify({produto_id:entradaProdutoId,produto_nome:p.nome,qtd,custo,validade:validade||null,fornecedor:forn,data:today()})});if(res.sucesso){p.qtd=res.qtd_nova;if(custo>0)p.custo=custo;if(validade)p.validade=validade;entradas_cache.unshift({data:today(),produto_nome:p.nome,qtd,custo,total_pago:res.total_pago,fornecedor:forn});cancelarEntrada();renderEstoque();renderEntradas();alert(`Entrada registrada!\n${p.nome}\n+${qtd} ${p.unidade} → Estoque: ${res.qtd_nova}`);}else alert('Erro: '+(res.erro||''));}
 function cancelarEntrada(){entradaProdutoId=null;document.getElementById('entrada-busca').value='';document.getElementById('entrada-sugestoes').innerHTML='';document.getElementById('entrada-produto-selecionado').style.display='none';document.getElementById('entrada-campos').style.display='none';document.getElementById('entrada-btn-area').style.display='none';document.getElementById('entrada-qtd').value='1';document.getElementById('entrada-custo').value='';document.getElementById('entrada-validade').value='';document.getElementById('entrada-fornecedor').value='';document.getElementById('form-entrada').style.display='none';}
-async function loadFinanceiro(){const[rV,rD]=await Promise.all([api('/api/vendas'),api('/api/despesas')]);vendas_cache=rV.dados||[];despesas_cache=rD.dados||[];const receita=vendas_cache.reduce((a,v)=>a+parseFloat(v.total||0),0);const desp=despesas_cache.reduce((a,d)=>a+parseFloat(d.valor||0),0);const cmv=vendas_cache.reduce((a,v)=>a+parseFloat(v.custo||0),0);const totalS=desp+cmv;const saldo=receita-totalS;document.getElementById('f-receita').textContent=fmt(receita);document.getElementById('f-despesas').textContent=fmt(totalS);const sEl=document.getElementById('f-saldo');sEl.textContent=fmt(saldo);sEl.className='metric-value '+(saldo>=0?'green':'red');const recManuais=await api('/api/despesas');const recManArr=(recManuais.dados||[]).filter(d=>d.tipo==='entrada');const recManVal=recManArr.reduce((a,d)=>a+parseFloat(d.valor||0),0);if(recManVal>0){document.getElementById('card-rec-manual').style.display='';document.getElementById('f-rec-manual').textContent=fmt(recManVal);}const lanc=[...vendas_cache.map(v=>({data:v.data,desc:'Venda — '+(v.itens||[]).map(i=>i.nome).join(', ').substring(0,40),cat:'Venda',tipo:'entrada',valor:parseFloat(v.total||0),id_venda:v.id,pgto:v.pgto,desconto:v.desconto,custo:v.custo})),...despesas_cache.map(d=>({data:d.data,desc:d.descricao,cat:d.categoria,tipo:'saida',valor:parseFloat(d.valor||0),id_orig:d.id})),...recManArr.map(d=>({data:d.data,desc:d.descricao,cat:d.categoria,tipo:'entrada',valor:parseFloat(d.valor||0),id_orig:d.id}))].sort((a,b)=>String(b.data).localeCompare(String(a.data)));const w=document.getElementById('tabela-financeiro-wrap');w.innerHTML=lanc.length?`<table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Tipo</th><th>Valor</th><th></th></tr></thead><tbody>${lanc.map(t=>`<tr><td style="font-size:11px;">${fmtDate(t.data)}</td><td>${t.desc}</td><td style="color:var(--muted);">${t.cat}</td><td><span class="badge ${t.tipo==='entrada'?'badge-green':'badge-red'}">${t.tipo==='entrada'?'Entrada':'Saída'}</span></td><td style="font-weight:600;${t.tipo==='entrada'?'color:var(--green)':'color:var(--red)'}">${fmt(t.valor)}</td><td style="white-space:nowrap;">${t.id_orig?`<button class="btn btn-primary btn-sm" style="margin-right:4px;" onclick='editarLancamento(${JSON.stringify({id:t.id_orig,desc:t.desc,valor:t.valor,data:t.data,tipo:t.tipo})})'>✎</button><button class="btn btn-danger btn-sm" onclick="excluirLancDespesa(${t.id_orig})">×</button>`:t.id_venda?`<button class="btn btn-primary btn-sm" style="margin-right:4px;" onclick='editarVenda(${t.id_venda},${JSON.stringify({pgto:t.pgto,desconto:t.desconto,total:t.valor,custo:t.custo})})'>✎</button><button class="btn btn-danger btn-sm" onclick="excluirVenda(${t.id_venda})">×</button>`:''}</td></tr>`).join('')}</tbody></table>`:'<div style="color:var(--muted);padding:16px;">Nenhum lançamento.</div>';}
+
 async function excluirLancDespesa(id){
   if(!confirm('Excluir este lançamento?'))return;
   const res=await api('/api/despesas',{method:'POST',body:JSON.stringify({acao:'excluir',id})});
@@ -458,6 +458,171 @@ function renderRelatorio(res, filtroProduto){
   ${recMan.length?`<div class="card"><div class="card-sub-title">Receitas manuais</div><div style="overflow-x:auto;"><table><thead><tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Valor</th></tr></thead><tbody>${recMan.map(d=>`<tr><td>${fmtDate(d.data)}</td><td>${d.descricao}</td><td style="color:var(--muted);">${d.categoria}</td><td style="color:var(--green);font-weight:600;">${fmt(d.valor)}</td></tr>`).join('')}</tbody></table></div></div>`:''}`;
 }
 // gerarRelatorio substituída abaixo
+
+
+// ── FEAT 3: Carrega categorias no filtro ──
+async function carregarCategorias(){
+  const r=await api('/api/categorias');
+  const cats=r.dados||[];
+  const sel=document.getElementById('filtro-categoria');
+  if(!sel)return;
+  sel.innerHTML='<option value="">Todas categorias</option>'+cats.map(c=>`<option value="${c}">${c}</option>`).join('');
+}
+
+// ── FEAT 1: Modal de edição ──
+let _editModal=null;
+function abrirModal(html_content){
+  if(_editModal)fecharModal();
+  const overlay=document.createElement('div');
+  overlay.id='edit-overlay';
+  overlay.style.cssText='position:fixed;inset:0;z-index:999;background:rgba(0,0,0,0.75);display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.innerHTML=`<div style="background:#06111e;border:1px solid var(--b2);border-radius:8px;padding:24px;max-width:560px;width:100%;position:relative;box-shadow:0 0 40px rgba(0,100,255,0.3);max-height:90vh;overflow-y:auto;">
+    <button onclick="fecharModal()" style="position:absolute;top:12px;right:12px;background:transparent;border:none;color:var(--muted);font-size:18px;cursor:pointer;z-index:1;">✕</button>
+    ${html_content}
+  </div>`;
+  document.body.appendChild(overlay);
+  _editModal=overlay;
+}
+function fecharModal(){if(_editModal){_editModal.remove();_editModal=null;}}
+
+// ── FEAT 1: Editar produto ──
+function editarProduto(id){
+  const p=produtos_cache.find(x=>x.id==id);
+  if(!p)return;
+  abrirModal(`
+    <div style="font-family:var(--title);font-size:11px;font-weight:700;letter-spacing:.15em;color:var(--cyan);margin-bottom:16px;">EDITAR PRODUTO</div>
+    <div class="form-grid3" style="margin-bottom:12px;">
+      <div class="form-row"><label>Nome</label><input id="ep-nome" value="${p.nome||''}"></div>
+      <div class="form-row"><label>Código</label><input id="ep-codigo" value="${p.codigo||''}"></div>
+      <div class="form-row"><label>Categoria</label><input id="ep-cat" value="${p.categoria||''}"></div>
+    </div>
+    <div class="form-grid3" style="margin-bottom:12px;">
+      <div class="form-row"><label>Custo (R$)</label><input type="number" id="ep-custo" step="0.01" value="${p.custo||0}"></div>
+      <div class="form-row"><label>Venda (R$)</label><input type="number" id="ep-venda" step="0.01" value="${p.venda||0}"></div>
+      <div class="form-row"><label>Qtd mínima</label><input type="number" id="ep-min" value="${p.min||5}"></div>
+    </div>
+    <div class="form-grid" style="margin-bottom:16px;">
+      <div class="form-row"><label>Validade</label><input type="date" id="ep-validade" value="${p.validade||''}"></div>
+      <div class="form-row"><label>Unidade</label><input id="ep-unidade" value="${p.unidade||'un'}"></div>
+    </div>
+    <button class="btn btn-primary" onclick="salvarEdicaoProduto(${id})">Salvar</button>
+    <button class="btn btn-ghost" style="margin-left:8px;" onclick="fecharModal()">Cancelar</button>
+  `);
+}
+async function salvarEdicaoProduto(id){
+  const body={acao:'editar',id,
+    nome:document.getElementById('ep-nome').value.trim(),
+    codigo:document.getElementById('ep-codigo').value.trim(),
+    categoria:document.getElementById('ep-cat').value.trim(),
+    custo:parseFloat(document.getElementById('ep-custo').value)||0,
+    venda:parseFloat(document.getElementById('ep-venda').value)||0,
+    min:parseInt(document.getElementById('ep-min').value)||5,
+    validade:document.getElementById('ep-validade').value||null,
+    unidade:document.getElementById('ep-unidade').value||'un',
+  };
+  const res=await api('/api/produtos',{method:'POST',body:JSON.stringify(body)});
+  if(res.sucesso){
+    const p=produtos_cache.find(x=>x.id==id);
+    if(p)Object.assign(p,body);
+    fecharModal();renderEstoque();
+    carregarCategorias();
+  }else alert('Erro: '+(res.erro||''));
+}
+
+// ── FEAT 1: Editar venda ──
+function editarVenda(id,venda){
+  abrirModal(`
+    <div style="font-family:var(--title);font-size:11px;font-weight:700;letter-spacing:.15em;color:var(--cyan);margin-bottom:16px;">EDITAR VENDA #${id}</div>
+    <div class="form-grid" style="margin-bottom:12px;">
+      <div class="form-row"><label>Forma de pagamento</label>
+        <select id="ev-pgto">
+          <option ${venda.pgto==='Dinheiro'?'selected':''}>Dinheiro</option>
+          <option ${venda.pgto==='PIX'?'selected':''}>PIX</option>
+          <option ${venda.pgto==='Cartão débito'?'selected':''}>Cartão débito</option>
+          <option ${venda.pgto==='Cartão crédito'?'selected':''}>Cartão crédito</option>
+        </select>
+      </div>
+      <div class="form-row"><label>Desconto (R$)</label><input type="number" id="ev-desconto" step="0.01" value="${venda.desconto||0}"></div>
+    </div>
+    <div class="form-grid" style="margin-bottom:16px;">
+      <div class="form-row"><label>Total (R$)</label><input type="number" id="ev-total" step="0.01" value="${venda.total||0}"></div>
+      <div class="form-row"><label>Custo (R$)</label><input type="number" id="ev-custo" step="0.01" value="${venda.custo||0}"></div>
+    </div>
+    <button class="btn btn-primary" onclick="salvarEdicaoVenda(${id})">Salvar</button>
+    <button class="btn btn-ghost" style="margin-left:8px;" onclick="fecharModal()">Cancelar</button>
+  `);
+}
+async function salvarEdicaoVenda(id){
+  const total=parseFloat(document.getElementById('ev-total').value)||0;
+  const custo=parseFloat(document.getElementById('ev-custo').value)||0;
+  const body={acao:'editar',id,
+    pgto:document.getElementById('ev-pgto').value,
+    desconto:parseFloat(document.getElementById('ev-desconto').value)||0,
+    total,custo,lucro:total-custo
+  };
+  const res=await api('/api/vendas',{method:'POST',body:JSON.stringify(body)});
+  if(res.sucesso){fecharModal();loadFinanceiro();}
+  else alert('Erro: '+(res.erro||''));
+}
+
+// ── FEAT 1: Editar lançamento (despesa/receita) ──
+function editarLancamento(item){
+  abrirModal(`
+    <div style="font-family:var(--title);font-size:11px;font-weight:700;letter-spacing:.15em;color:var(--cyan);margin-bottom:16px;">EDITAR LANÇAMENTO</div>
+    <div class="form-row"><label>Descrição</label><input id="el-desc" value="${(item.desc||'').replace(/"/g,'&quot;')}"></div>
+    <div class="form-grid" style="margin:12px 0;">
+      <div class="form-row"><label>Valor (R$)</label><input type="number" id="el-valor" step="0.01" value="${item.valor||0}"></div>
+      <div class="form-row"><label>Data</label><input type="date" id="el-data" value="${item.data||''}"></div>
+    </div>
+    <button class="btn btn-primary" onclick="salvarEdicaoLancamento(${item.id})">Salvar</button>
+    <button class="btn btn-ghost" style="margin-left:8px;" onclick="fecharModal()">Cancelar</button>
+  `);
+}
+async function salvarEdicaoLancamento(id){
+  const body={acao:'editar',id,
+    descricao:document.getElementById('el-desc').value.trim(),
+    valor:parseFloat(document.getElementById('el-valor').value)||0,
+    data:document.getElementById('el-data').value
+  };
+  const res=await api('/api/despesas',{method:'POST',body:JSON.stringify(body)});
+  if(res.sucesso){fecharModal();loadFinanceiro();}
+  else alert('Erro: '+(res.erro||''));
+}
+
+// ── FEAT 2: Excluir entrada (estorna estoque) ──
+async function excluirEntrada(id){
+  if(!confirm('Excluir esta entrada? O estoque será estornado.'))return;
+  const res=await api('/api/entradas',{method:'POST',body:JSON.stringify({acao:'excluir',id})});
+  if(res.sucesso){entradas_cache=entradas_cache.filter(e=>e.id!=id);loadEstoque();}
+  else alert('Erro: '+(res.erro||''));
+}
+
+// ── Excluir venda (estorna estoque) ──
+async function excluirVenda(id){
+  if(!confirm('Excluir esta venda? O estoque será estornado.'))return;
+  const res=await api('/api/vendas',{method:'POST',body:JSON.stringify({acao:'excluir',id})});
+  if(res.sucesso)loadFinanceiro();
+  else alert('Erro: '+(res.erro||''));
+}
+
+// ── FEAT 4: Lançar receita manual ──
+async function lancarReceita(){
+  const desc=document.getElementById('r-desc').value.trim();
+  const valor=parseFloat(document.getElementById('r-valor').value)||0;
+  if(!desc||!valor){alert('Preencha descrição e valor.');return;}
+  const res=await api('/api/despesas',{method:'POST',body:JSON.stringify({
+    acao:'criar',descricao:desc,valor,
+    categoria:document.getElementById('r-cat').value,
+    data:document.getElementById('r-data').value||today(),
+    tipo:'entrada'
+  })});
+  if(res.sucesso){
+    document.getElementById('r-desc').value='';
+    document.getElementById('r-valor').value='';
+    document.getElementById('form-receita').style.display='none';
+    loadFinanceiro();
+  }else alert('Erro: '+(res.erro||''));
+}
 
 document.getElementById('d-data').value=today();
 const _paginaSalva=localStorage.getItem('pagina')||'dashboard';
