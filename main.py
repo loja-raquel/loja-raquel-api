@@ -3,33 +3,19 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import os, json, ssl
 from urllib.request import Request as URLRequest, urlopen
-from urllib.parse import urlencode
 
 app = FastAPI()
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# ── DB ──────────────────────────────────────────────────────────────────────
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 _ssl_ctx = ssl.create_default_context()
 
 def _headers():
     key = os.environ["SUPABASE_KEY"]
-    return {
-        "apikey": key,
-        "Authorization": f"Bearer {key}",
-        "Content-Type": "application/json",
-        "Prefer": "return=representation",
-    }
+    return {"apikey": key, "Authorization": f"Bearer {key}",
+            "Content-Type": "application/json", "Prefer": "return=representation"}
 
 def _url(table, params=""):
-    base = os.environ["SUPABASE_URL"].rstrip("/")
-    return f"{base}/rest/v1/{table}{params}"
+    return f"{os.environ['SUPABASE_URL'].rstrip('/')}/rest/v1/{table}{params}"
 
 def sb_get(table, params=""):
     req = URLRequest(_url(table, params), headers=_headers(), method="GET")
@@ -62,9 +48,12 @@ def err(msg, status=500):
 # ── PRODUTOS ─────────────────────────────────────────────────────────────────
 
 @app.get("/api/produtos")
-def get_produtos():
+def get_produtos(categoria: str = None):
     try:
-        return ok(sb_get("produtos", "?order=nome"))
+        params = "?order=nome"
+        if categoria:
+            params += f"&categoria=eq.{categoria}"
+        return ok(sb_get("produtos", params))
     except Exception as e:
         return err(str(e))
 
@@ -91,6 +80,23 @@ async def post_produtos(request: Request):
             res = sb_post("produtos", dados)
             return ok(res if isinstance(res, list) else [res], status=201)
 
+        elif acao == "editar":
+            pid = body.get("id")
+            if not pid:
+                return err("ID obrigatório", 400)
+            campos = {}
+            for f in ["nome", "codigo", "categoria", "unidade"]:
+                if f in body: campos[f] = body[f]
+            for f in ["custo", "venda"]:
+                if f in body: campos[f] = float(body[f])
+            for f in ["qtd", "min"]:
+                if f in body: campos[f] = int(body[f])
+            if "validade" in body: campos["validade"] = body["validade"] or None
+            if not campos:
+                return err("Nenhum campo para atualizar", 400)
+            res = sb_patch("produtos", campos, f"id=eq.{pid}")
+            return ok(res)
+
         elif acao == "atualizar_qtd":
             pid = body.get("id")
             qtd = body.get("qtd")
@@ -111,6 +117,17 @@ async def post_produtos(request: Request):
     except Exception as e:
         return err(str(e))
 
+# ── CATEGORIAS ───────────────────────────────────────────────────────────────
+
+@app.get("/api/categorias")
+def get_categorias():
+    try:
+        prods = sb_get("produtos", "?select=categoria&order=categoria")
+        cats = sorted(set(p["categoria"] for p in prods if p.get("categoria")))
+        return ok(cats)
+    except Exception as e:
+        return err(str(e))
+
 # ── VENDAS ───────────────────────────────────────────────────────────────────
 
 @app.get("/api/vendas")
@@ -128,6 +145,44 @@ def get_vendas(de: str = None, ate: str = None):
 async def post_vendas(request: Request):
     try:
         body = await request.json()
+        acao = body.get("acao", "criar")
+
+        if acao == "editar":
+            vid = body.get("id")
+            if not vid:
+                return err("ID obrigatório", 400)
+            campos = {}
+            if "pgto" in body: campos["pgto"] = body["pgto"]
+            if "desconto" in body: campos["desconto"] = float(body["desconto"])
+            if "total" in body: campos["total"] = float(body["total"])
+            if "custo" in body: campos["custo"] = float(body["custo"])
+            if "lucro" in body: campos["lucro"] = float(body["lucro"])
+            res = sb_patch("vendas", campos, f"id=eq.{vid}")
+            return ok(res)
+
+        elif acao == "excluir":
+            vid = body.get("id")
+            if not vid:
+                return err("ID obrigatório", 400)
+            vendas_list = sb_get("vendas", f"?id=eq.{vid}")
+            if vendas_list:
+                for item in (vendas_list[0].get("itens") or []):
+                    pid = item.get("id")
+                    qtd = int(item.get("qtd", 1))
+                    if pid:
+                        try:
+                            prods = sb_get("produtos", f"?id=eq.{pid}&select=qtd")
+                            if prods:
+                                sb_patch("produtos", {"qtd": prods[0]["qtd"] + qtd}, f"id=eq.{pid}")
+                        except: pass
+                try:
+                    cmvs = sb_get("despesas", f"?categoria=eq.CMV&descricao=like.*{vid}*")
+                    for c in cmvs:
+                        sb_delete("despesas", f"id=eq.{c['id']}")
+                except: pass
+            sb_delete("vendas", f"id=eq.{vid}")
+            return ok()
+
         itens = body.get("itens", [])
         if not itens:
             return err("Venda sem itens", 400)
@@ -152,21 +207,30 @@ async def post_vendas(request: Request):
             qtd = int(item.get("qtd", 1))
             if not pid: continue
             try:
-                prods    = sb_get("produtos", f"?id=eq.{pid}&select=qtd")
+                prods = sb_get("produtos", f"?id=eq.{pid}&select=qtd")
                 qtd_atual = prods[0]["qtd"] if prods else 0
+                # FEAT 6: consumir lotes FIFO
+                try:
+                    lotes = sb_get("lotes", f"?produto_id=eq.{pid}&qtd=gt.0&order=validade.asc.nullslast")
+                    qtd_restante = qtd
+                    for lote in lotes:
+                        if qtd_restante <= 0: break
+                        consumir = min(lote["qtd"], qtd_restante)
+                        sb_patch("lotes", {"qtd": lote["qtd"] - consumir}, f"id=eq.{lote['id']}")
+                        qtd_restante -= consumir
+                    lotes_ativos = sb_get("lotes", f"?produto_id=eq.{pid}&qtd=gt.0&order=validade.asc.nullslast")
+                    if lotes_ativos:
+                        sb_patch("produtos", {"validade": lotes_ativos[0].get("validade")}, f"id=eq.{pid}")
+                except: pass
                 sb_patch("produtos", {"qtd": max(0, qtd_atual - qtd)}, f"id=eq.{pid}")
             except Exception as ex:
                 erros.append(str(ex))
 
         custo = float(body.get("custo", 0))
         if custo > 0:
-            sb_post("despesas", {
-                "data":      body.get("data"),
-                "descricao": f"CMV — venda #{venda_id}",
-                "valor":     custo,
-                "categoria": "CMV",
-                "tipo":      "saida",
-            })
+            sb_post("despesas", {"data": body.get("data"),
+                "descricao": f"CMV — venda #{venda_id}", "valor": custo,
+                "categoria": "CMV", "tipo": "saida"})
 
         return JSONResponse({"sucesso": True, "venda_id": venda_id, "erros_estoque": erros}, status_code=201)
 
@@ -190,6 +254,43 @@ def get_entradas(de: str = None, ate: str = None):
 async def post_entradas(request: Request):
     try:
         body = await request.json()
+        acao = body.get("acao", "criar")
+
+        if acao == "excluir":
+            eid = body.get("id")
+            if not eid:
+                return err("ID obrigatório", 400)
+            entradas_list = sb_get("entradas", f"?id=eq.{eid}")
+            if entradas_list:
+                e = entradas_list[0]
+                pid = e.get("produto_id")
+                qtd = int(e.get("qtd", 0))
+                if pid and qtd > 0:
+                    prods = sb_get("produtos", f"?id=eq.{pid}&select=qtd")
+                    if prods:
+                        sb_patch("produtos", {"qtd": max(0, prods[0]["qtd"] - qtd)}, f"id=eq.{pid}")
+                try:
+                    desps = sb_get("despesas", f"?categoria=eq.Compra de mercadoria&data=eq.{e.get('data')}")
+                    nome = e.get("produto_nome", "")
+                    for d in desps:
+                        if nome in d.get("descricao", ""):
+                            sb_delete("despesas", f"id=eq.{d['id']}")
+                            break
+                except: pass
+            sb_delete("entradas", f"id=eq.{eid}")
+            return ok()
+
+        elif acao == "editar":
+            eid = body.get("id")
+            if not eid:
+                return err("ID obrigatório", 400)
+            campos = {}
+            if "fornecedor" in body: campos["fornecedor"] = body["fornecedor"]
+            if "custo" in body: campos["custo"] = float(body["custo"])
+            if "validade" in body: campos["validade"] = body["validade"] or None
+            res = sb_patch("entradas", campos, f"id=eq.{eid}")
+            return ok(res)
+
         produto_id   = body.get("produto_id")
         produto_nome = body.get("produto_nome", "")
         qtd          = int(body.get("qtd", 0))
@@ -201,7 +302,7 @@ async def post_entradas(request: Request):
         if not produto_id or qtd <= 0:
             return err("produto_id e qtd são obrigatórios", 400)
 
-        prods = sb_get("produtos", f"?id=eq.{produto_id}&select=qtd,custo")
+        prods = sb_get("produtos", f"?id=eq.{produto_id}&select=qtd,custo,validade")
         if not prods:
             return err("Produto não encontrado", 404)
 
@@ -210,9 +311,18 @@ async def post_entradas(request: Request):
         total_pago   = custo * qtd
 
         update = {"qtd": qtd_nova}
-        if custo > 0:  update["custo"]    = custo
-        if validade:   update["validade"] = validade
+        if custo > 0: update["custo"] = custo
+        # FEAT 6: só muda validade se não tem estoque anterior
+        if validade and qtd_anterior == 0:
+            update["validade"] = validade
+
         sb_patch("produtos", update, f"id=eq.{produto_id}")
+
+        # Cria lote FIFO se tem validade
+        if validade:
+            try:
+                sb_post("lotes", {"produto_id": produto_id, "qtd": qtd, "validade": validade})
+            except: pass
 
         res = sb_post("entradas", {
             "data": data, "produto_id": produto_id, "produto_nome": produto_nome,
@@ -255,13 +365,26 @@ async def post_despesas(request: Request):
             descricao = body.get("descricao", "").strip()
             valor     = float(body.get("valor", 0))
             categoria = body.get("categoria", "Outros")
+            tipo      = body.get("tipo", "saida")
             if not descricao or valor <= 0:
                 return err("Descrição e valor são obrigatórios", 400)
             if categoria == "CMV":
                 return err("Categoria CMV é gerada automaticamente", 400)
             res = sb_post("despesas", {"data": body.get("data"), "descricao": descricao,
-                                        "valor": valor, "categoria": categoria, "tipo": "saida"})
+                                        "valor": valor, "categoria": categoria, "tipo": tipo})
             return ok(res, status=201)
+
+        elif acao == "editar":
+            did = body.get("id")
+            if not did:
+                return err("ID obrigatório", 400)
+            campos = {}
+            if "descricao" in body: campos["descricao"] = body["descricao"]
+            if "valor" in body: campos["valor"] = float(body["valor"])
+            if "categoria" in body: campos["categoria"] = body["categoria"]
+            if "data" in body: campos["data"] = body["data"]
+            res = sb_patch("despesas", campos, f"id=eq.{did}")
+            return ok(res)
 
         elif acao == "excluir":
             did = body.get("id")
@@ -284,14 +407,16 @@ def get_relatorio(de: str = None, ate: str = None):
         if not de or not ate:
             return err("Parâmetros 'de' e 'ate' são obrigatórios", 400)
 
-        vendas   = sb_get("vendas",   f"?data=gte.{de}&data=lte.{ate}")
-        entradas = sb_get("entradas", f"?data=gte.{de}&data=lte.{ate}&order=data.desc")
-        despesas = sb_get("despesas", f"?data=gte.{de}&data=lte.{ate}&categoria=neq.CMV&order=data.desc")
+        vendas           = sb_get("vendas",   f"?data=gte.{de}&data=lte.{ate}")
+        entradas         = sb_get("entradas", f"?data=gte.{de}&data=lte.{ate}&order=data.desc")
+        despesas         = sb_get("despesas", f"?data=gte.{de}&data=lte.{ate}&categoria=neq.CMV&tipo=eq.saida&order=data.desc")
+        receitas_manuais = sb_get("despesas", f"?data=gte.{de}&data=lte.{ate}&tipo=eq.entrada&order=data.desc")
 
-        faturamento  = sum(float(v.get("total", 0)) for v in vendas)
-        cmv          = sum(float(v.get("custo", 0)) for v in vendas)
-        lucro_bruto  = faturamento - cmv
-        total_desp   = sum(float(d.get("valor", 0)) for d in despesas)
+        faturamento   = sum(float(v.get("total", 0)) for v in vendas)
+        cmv           = sum(float(v.get("custo", 0)) for v in vendas)
+        lucro_bruto   = faturamento - cmv
+        total_desp    = sum(float(d.get("valor", 0)) for d in despesas)
+        total_rec_man = sum(float(r.get("valor", 0)) for r in receitas_manuais)
         total_compras = sum(float(e.get("total_pago", 0)) for e in entradas)
 
         por_produto = {}
@@ -317,20 +442,22 @@ def get_relatorio(de: str = None, ate: str = None):
 
         return JSONResponse({"sucesso": True, "periodo": {"de": de, "ate": ate},
             "resumo": {
-                "faturamento":    round(faturamento, 2),
-                "cmv":            round(cmv, 2),
-                "lucro_bruto":    round(lucro_bruto, 2),
-                "lucro_liquido":  round(lucro_bruto - total_desp, 2),
-                "total_despesas": round(total_desp, 2),
-                "total_compras":  round(total_compras, 2),
-                "margem":         round(lucro_bruto / faturamento * 100, 1) if faturamento > 0 else 0,
-                "ticket_medio":   round(faturamento / len(vendas), 2) if vendas else 0,
-                "qtd_vendas":     len(vendas),
-                "qtd_entradas":   len(entradas),
+                "faturamento":      round(faturamento, 2),
+                "cmv":              round(cmv, 2),
+                "lucro_bruto":      round(lucro_bruto, 2),
+                "lucro_liquido":    round(lucro_bruto - total_desp + total_rec_man, 2),
+                "total_despesas":   round(total_desp, 2),
+                "total_compras":    round(total_compras, 2),
+                "receitas_manuais": round(total_rec_man, 2),
+                "margem":           round(lucro_bruto / faturamento * 100, 1) if faturamento > 0 else 0,
+                "ticket_medio":     round(faturamento / len(vendas), 2) if vendas else 0,
+                "qtd_vendas":       len(vendas),
+                "qtd_entradas":     len(entradas),
             },
-            "por_produto": produtos_lista,
-            "entradas":    entradas,
-            "despesas":    despesas,
+            "por_produto":      produtos_lista,
+            "entradas":         entradas,
+            "despesas":         despesas,
+            "receitas_manuais": receitas_manuais,
         })
 
     except Exception as e:
