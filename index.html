@@ -155,7 +155,7 @@ label{font-family:var(--title);font-size:9px;font-weight:600;letter-spacing:.18e
       <div class="scanner-area" id="scanner-area">
         <div style="font-family:var(--title);font-size:9px;color:var(--muted);letter-spacing:.18em;margin-bottom:10px;">CÓDIGO DE BARRAS / BUSCA POR NOME</div>
         <input class="scanner-input" id="scanner-input" placeholder="Leia o código ou digite o nome..." autocomplete="off" oninput="buscarProduto(this.value)" onkeydown="if(event.key==='Enter'){adicionarPorCodigo();event.preventDefault();}">
-        <div style="display:flex;align-items:center;gap:10px;margin-top:10px;justify-content:center;"><label style="margin:0;font-size:9px;letter-spacing:.1em;color:var(--muted);">QTD:</label><input type="number" id="scanner-qtd" value="1" min="1" style="width:70px;text-align:center;font-family:var(--title);font-size:14px;font-weight:700;padding:6px;"><span style="font-size:9px;color:var(--muted);font-family:var(--title);letter-spacing:.1em;">ENTER PARA ADICIONAR</span></div>
+        <div style="display:flex;align-items:center;gap:8px;margin-top:10px;justify-content:center;"><label style="margin:0;font-size:9px;letter-spacing:.1em;color:var(--muted);">QTD:</label><button onclick="ajustarQtdScanner(-1)" style="width:32px;height:32px;background:rgba(255,34,68,.1);border:1px solid rgba(255,34,68,.3);border-radius:4px;color:var(--red);font-size:18px;cursor:pointer;line-height:1;">−</button><input type="number" id="scanner-qtd" value="1" min="1" style="width:60px;text-align:center;font-family:var(--title);font-size:14px;font-weight:700;padding:6px;" onkeydown="if(event.key==='Enter'){adicionarPorCodigo();event.preventDefault();}"><button onclick="ajustarQtdScanner(1)" style="width:32px;height:32px;background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.25);border-radius:4px;color:var(--cyan);font-size:18px;cursor:pointer;line-height:1;">+</button><button onclick="adicionarPorCodigo()" style="padding:6px 16px;background:rgba(0,255,136,.1);border:1px solid var(--green);border-radius:4px;color:var(--green);font-family:var(--title);font-size:9px;font-weight:700;letter-spacing:.1em;cursor:pointer;">ADICIONAR</button></div>
       </div>
       <div id="sugestoes" style="margin-bottom:14px;"></div>
       <div id="carrinho"></div>
@@ -331,7 +331,7 @@ function buscarProduto(q){const s=document.getElementById('sugestoes');if(!q){s.
 function adicionarPorCodigo(){const v=document.getElementById('scanner-input').value.trim();if(!v)return;const p=produtos_cache.find(x=>x.codigo===v||x.nome.toLowerCase()===v.toLowerCase());if(p){const qtdInput=parseInt(document.getElementById('scanner-qtd').value)||1;adicionarAoCarrinhoQtd(p.id,qtdInput);document.getElementById('scanner-input').value='';document.getElementById('sugestoes').innerHTML='';const sa=document.getElementById('scanner-area');sa.classList.add('scanning');setTimeout(()=>sa.classList.remove('scanning'),600);}else{document.getElementById('sugestoes').innerHTML='<div style="color:var(--red);font-size:12px;padding:8px;">Produto não encontrado. Cadastre primeiro no Estoque.</div>';setTimeout(()=>document.getElementById('sugestoes').innerHTML='',3000);document.getElementById('scanner-input').value='';}}
 function adicionarAoCarrinho(id){adicionarAoCarrinhoQtd(id,1);}
 function adicionarAoCarrinhoQtd(id,qtdAdicionar){const p=produtos_cache.find(x=>x.id==id);if(!p)return;if(parseInt(p.qtd)<=0){alert('Produto sem estoque!');return;}qtdAdicionar=parseInt(qtdAdicionar)||1;const item=carrinho.find(x=>x.id==id);if(item){const novaQtd=item.qtd+qtdAdicionar;if(novaQtd>parseInt(p.qtd)){alert('Estoque insuficiente! Disponível: '+p.qtd);return;}item.qtd=novaQtd;}else{if(qtdAdicionar>parseInt(p.qtd)){alert('Estoque insuficiente! Disponível: '+p.qtd);return;}carrinho.push({id:p.id,nome:p.nome,preco:parseFloat(p.venda),qtd:qtdAdicionar,custo:parseFloat(p.custo)});}document.getElementById('scanner-input').value='';document.getElementById('scanner-qtd').value='1';document.getElementById('sugestoes').innerHTML='';renderCarrinho();}
-function renderCarrinho(){const el=document.getElementById('carrinho'),resumo=document.getElementById('resumo-itens');if(!carrinho.length){el.innerHTML='<div style="color:var(--muted);text-align:center;padding:32px;font-size:13px;">Nenhum item adicionado.</div>';resumo.innerHTML='<div style="color:var(--muted);font-size:12px;">Carrinho vazio.</div>';document.getElementById('subtotal-pdv').textContent='R$ 0,00';document.getElementById('total-pdv').textContent='R$ 0,00';return;}el.innerHTML=carrinho.map(i=>`<div class="pdv-item"><div><div style="font-weight:600;">${i.nome}</div><div style="font-size:11px;color:var(--muted);">${fmt(i.preco)} × ${i.qtd}</div></div><div style="display:flex;align-items:center;gap:10px;"><span style="font-weight:600;color:var(--cyan);">${fmt(i.preco*i.qtd)}</span><button class="btn btn-danger btn-sm" onclick="removerItem(${i.id})">×</button></div></div>`).join('');resumo.innerHTML=carrinho.map(i=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;color:var(--muted);"><span>${i.nome} ×${i.qtd}</span><span>${fmt(i.preco*i.qtd)}</span></div>`).join('');calcularTotalPDV();}
+function renderCarrinho(){const el=document.getElementById('carrinho'),resumo=document.getElementById('resumo-itens');if(!carrinho.length){el.innerHTML='<div style="color:var(--muted);text-align:center;padding:32px;font-size:13px;">Nenhum item adicionado.</div>';resumo.innerHTML='<div style="color:var(--muted);font-size:12px;">Carrinho vazio.</div>';document.getElementById('subtotal-pdv').textContent='R$ 0,00';document.getElementById('total-pdv').textContent='R$ 0,00';return;}el.innerHTML=carrinho.map(i=>`<div class="pdv-item"><div style="flex:1;"><div style="font-weight:600;">${i.nome}</div><div style="font-size:11px;color:var(--muted);">${fmt(i.preco)} × ${i.qtd} = <span style="color:var(--cyan);">${fmt(i.preco*i.qtd)}</span></div></div><div style="display:flex;align-items:center;gap:6px;"><button onclick="alterarQtdCarrinho(${i.id},-1)" style="width:28px;height:28px;background:rgba(255,34,68,.1);border:1px solid rgba(255,34,68,.3);border-radius:4px;color:var(--red);font-size:16px;cursor:pointer;line-height:1;">−</button><span style="font-family:var(--title);font-size:14px;font-weight:700;min-width:24px;text-align:center;">${i.qtd}</span><button onclick="alterarQtdCarrinho(${i.id},1)" style="width:28px;height:28px;background:rgba(0,212,255,.08);border:1px solid rgba(0,212,255,.25);border-radius:4px;color:var(--cyan);font-size:16px;cursor:pointer;line-height:1;">+</button><button onclick="removerItem(${i.id})" style="width:28px;height:28px;background:rgba(255,34,68,.08);border:1px solid rgba(255,34,68,.2);border-radius:4px;color:var(--red);font-size:12px;cursor:pointer;">✕</button></div></div>`).join('');resumo.innerHTML=carrinho.map(i=>`<div style="display:flex;justify-content:space-between;font-size:12px;padding:4px 0;color:var(--muted);"><span>${i.nome} ×${i.qtd}</span><span>${fmt(i.preco*i.qtd)}</span></div>`).join('');calcularTotalPDV();}
 function calcularTotalPDV(){const sub=carrinho.reduce((a,i)=>a+i.preco*i.qtd,0);const desc=parseFloat(document.getElementById('desconto-pdv').value)||0;const total=Math.max(0,sub-desc);document.getElementById('subtotal-pdv').textContent=fmt(sub);document.getElementById('total-pdv').textContent=fmt(total);}
 function removerItem(id){carrinho=carrinho.filter(x=>x.id!=id);renderCarrinho();}
 function limparCarrinho(){carrinho=[];renderCarrinho();}
@@ -622,6 +622,30 @@ async function lancarReceita(){
     document.getElementById('form-receita').style.display='none';
     loadFinanceiro();
   }else alert('Erro: '+(res.erro||''));
+}
+
+
+// PDV: ajusta quantidade no campo scanner
+function ajustarQtdScanner(delta){
+  const el=document.getElementById('scanner-qtd');
+  const nova=Math.max(1,(parseInt(el.value)||1)+delta);
+  el.value=nova;
+}
+
+// PDV: altera quantidade de item já no carrinho
+function alterarQtdCarrinho(id, delta){
+  const p=produtos_cache.find(x=>x.id==id);
+  const item=carrinho.find(x=>x.id==id);
+  if(!item)return;
+  const nova=item.qtd+delta;
+  if(nova<=0){
+    if(confirm('Remover '+item.nome+' do carrinho?'))carrinho=carrinho.filter(x=>x.id!=id);
+  } else if(p && nova>parseInt(p.qtd)){
+    alert('Estoque insuficiente! Disponível: '+p.qtd);
+  } else {
+    item.qtd=nova;
+  }
+  renderCarrinho();
 }
 
 document.getElementById('d-data').value=today();
